@@ -3,8 +3,8 @@
 Part A
 ---
 
-![WEEk1_SOC_sol](parta1.png)
-![WEEk1_SOC_sol](paera2.png)
+![partA1](parta1.png)
+![partA2](parta2.png)
 
 Part B — 6-Question Hazard Quiz
 ---
