@@ -3,8 +3,8 @@
 Part A
 ---
 
-![partA1](parta1.png)
-![partA2](parta2.png)
+![partA1](parta1.jpeg)
+![partA2](parta2.jpeg)
 
 Part B — 6-Question Hazard Quiz
 ---
