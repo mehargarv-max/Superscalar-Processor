@@ -1,0 +1,43 @@
+# PRAVAH Design Decisions
+Locked down at Week 4, Milestone 2. Changes require mentor approval.
+
+## Pipeline
+* Issue width: 2
+* Fetch width: 2
+* Commit width: 2
+
+## Register file
+* Architectural regs: 32 (RV32I)
+* Physical regs: 48
+* Free list: 16 entries
+
+## Reservation stations
+* ALU: 4 entries (this week's module)
+* MUL: 2 entries (Week 6)
+* LSU: 2 entries (Week 6)
+
+## ROB
+* Depth: 8
+* Dispatch/commit width: 2
+
+## Functional units
+* 2 ALUs (1-cycle)
+* 1 MUL (3-cycle pipelined)
+* 1 LSU (1-cycle, blocking)
+
+## Branch predictor
+* 2-bit BHT, 256 entries, indexed by PC[9:2]
+* No BTB (predict-taken pays 1 extra cycle for target computation)
+
+## ISA subset (13 instructions)
+* ADD, SUB, ADDI
+* AND, OR, XOR, SLL, SRL, SLT
+* LW, SW
+* BEQ, BNE, JAL
+
+## Memory
+* IMem: 1 KB, $readmemh init
+* DMem: 1 KB, single-port, combinational read
+
+## Out of scope (DO NOT IMPLEMENT)
+* Caches, LSQ, store forwarding, tournament predictor, FP, exceptions, 4-wide issue
