@@ -1,0 +1,74 @@
+module register_file #(
+    parameter DATA_WIDTH = 32,
+    parameter PHYS_ADDR_W = 6,
+    parameter NUM_PHYS_REGS = 48
+)(
+    input wire clk_i,
+    input wire reset_i,
+    
+    // Read ports (2 per ALU)
+    input wire [PHYS_ADDR_W-1:0] rd_addr_1, rd_addr_2, rd_addr_3, rd_addr_4,
+    output wire [DATA_WIDTH-1:0] rd_data_1, rd_data_2, rd_data_3, rd_data_4,
+    
+    // Write ports (Writeback from FUs)
+    input wire wr_en_1,
+    input wire [PHYS_ADDR_W-1:0] wr_addr_1,
+    input wire [DATA_WIDTH-1:0] wr_data_1,
+    
+    input wire wr_en_2,
+    input wire [PHYS_ADDR_W-1:0] wr_addr_2,
+    input wire [DATA_WIDTH-1:0] wr_data_2,
+    
+    // Allocate ports (Clear ready bit at Dispatch)
+    input wire alloc_en_1,
+    input wire [PHYS_ADDR_W-1:0] alloc_addr_1,
+    input wire alloc_en_2,
+    input wire [PHYS_ADDR_W-1:0] alloc_addr_2,
+
+    // Export entire ready array for RS snoop
+    output wire [NUM_PHYS_REGS-1:0] ready_vec_o
+);
+
+    reg [DATA_WIDTH-1:0] regs [0:NUM_PHYS_REGS-1];
+    reg ready [0:NUM_PHYS_REGS-1];
+
+    assign rd_data_1 = regs[rd_addr_1];
+    assign rd_data_2 = regs[rd_addr_2];
+    assign rd_data_3 = regs[rd_addr_3];
+    assign rd_data_4 = regs[rd_addr_4];
+
+    genvar i;
+    generate
+        for (i = 0; i < NUM_PHYS_REGS; i = i + 1) begin : assign_ready
+            assign ready_vec_o[i] = ready[i];
+        end
+    endgenerate
+
+    integer j;
+    always @(posedge clk_i) begin
+        if (reset_i) begin
+            for (j = 0; j < NUM_PHYS_REGS; j = j + 1) begin
+                regs[j] <= 32'b0;
+                ready[j] <= 1'b1; 
+            end
+        end else begin
+            // 1) Writebacks set ready = 1
+            if (wr_en_1) begin
+                regs[wr_addr_1] <= wr_data_1;
+                ready[wr_addr_1] <= 1'b1;
+            end
+            if (wr_en_2) begin
+                regs[wr_addr_2] <= wr_data_2;
+                ready[wr_addr_2] <= 1'b1;
+            end
+            
+            // 2) Allocate clears ready bit (unless bypassed by same-cycle write)
+            if (alloc_en_1 && !(wr_en_1 && wr_addr_1 == alloc_addr_1) && !(wr_en_2 && wr_addr_2 == alloc_addr_1)) begin
+                ready[alloc_addr_1] <= 1'b0;
+            end
+            if (alloc_en_2 && !(wr_en_1 && wr_addr_1 == alloc_addr_2) && !(wr_en_2 && wr_addr_2 == alloc_addr_2)) begin
+                ready[alloc_addr_2] <= 1'b0;
+            end
+        end
+    end
+endmodule

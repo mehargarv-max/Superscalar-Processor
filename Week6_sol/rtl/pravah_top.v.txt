@@ -1,0 +1,174 @@
+module pravah_top (
+    input wire clk_i,
+    input wire reset_i
+);
+
+    // Fetch outputs
+    wire [31:0] fetch_pc_A, fetch_pc_B;
+    wire [31:0] fetch_instr_A, fetch_instr_B;
+    wire fetch_valid_A, fetch_valid_B;
+
+    // Decode outputs
+    wire [3:0] dec_A_op, dec_B_op;
+    wire [4:0] dec_A_rs1, dec_A_rs2, dec_A_rd, dec_B_rs1, dec_B_rs2, dec_B_rd;
+    wire dec_A_writes, dec_B_writes;
+    wire [31:0] dec_A_imm, dec_B_imm;
+    wire dec_A_has_imm, dec_B_has_imm;
+    wire [1:0] dec_A_fu, dec_B_fu;
+    wire dec_A_valid, dec_B_valid;
+
+    // Rename outputs
+    wire [5:0] rn_A_rs1_p, rn_A_rs2_p, rn_A_rd_p, rn_A_old_p;
+    wire [5:0] rn_B_rs1_p, rn_B_rs2_p, rn_B_rd_p, rn_B_old_p;
+    wire rn_stall_A, rn_stall_B;
+
+    // Dispatch outputs
+    wire disp_fe_stall;
+    wire rob_alloc_A, rob_alloc_B;
+    wire [4:0] rob_arch_A, rob_arch_B;
+    wire [5:0] rob_phys_A, rob_phys_B, rob_old_A, rob_old_B;
+    wire rob_writes_A, rob_writes_B;
+    
+    wire rs_disp_A_valid, rs_disp_B_valid;
+    wire [3:0] rs_disp_A_op, rs_disp_B_op;
+    wire [5:0] rs_disp_A_pj, rs_disp_A_pk, rs_disp_A_pd, rs_disp_B_pj, rs_disp_B_pk, rs_disp_B_pd;
+    wire [2:0] rs_disp_A_rob, rs_disp_B_rob;
+
+    // ROB outputs
+    wire [2:0] rob_tail;
+    wire rob_full;
+    wire rob_commit_A_valid, rob_commit_B_valid;
+    wire [5:0] rob_commit_A_old, rob_commit_B_old;
+
+    // RS Issue buses
+    wire rs_iss0_v, rs_iss1_v;
+    wire [3:0] rs_iss0_op, rs_iss1_op;
+    wire [5:0] rs_iss0_pj, rs_iss0_pk, rs_iss0_pd, rs_iss1_pj, rs_iss1_pk, rs_iss1_pd;
+    wire [2:0] rs_iss0_rob, rs_iss1_rob;
+    wire [31:0] rs_iss0_imm, rs_iss1_imm;
+    wire rs_iss0_use_imm, rs_iss1_use_imm;
+
+    // ALU outputs
+    wire alu0_v, alu1_v;
+    wire [31:0] alu0_res, alu1_res;
+    wire [5:0] alu0_pd, alu1_pd;
+    wire [2:0] alu0_rob, alu1_rob;
+
+    // PRF outputs
+    wire [31:0] prf_d1, prf_d2, prf_d3, prf_d4;
+    wire [47:0] prf_ready_vec;
+
+    fetch u_fetch (
+        .clk_i(clk_i), .reset_i(reset_i), .fe_stall_i(disp_fe_stall),
+        .pc_A_o(fetch_pc_A), .instr_A_o(fetch_instr_A), .valid_A_o(fetch_valid_A),
+        .pc_B_o(fetch_pc_B), .instr_B_o(fetch_instr_B), .valid_B_o(fetch_valid_B)
+    );
+
+    decode u_decode_A (
+        .instr_i(fetch_instr_A), .valid_i(fetch_valid_A),
+        .op_o(dec_A_op), .rs1_arch_o(dec_A_rs1), .rs2_arch_o(dec_A_rs2), .rd_arch_o(dec_A_rd),
+        .writes_rd_o(dec_A_writes), .imm_o(dec_A_imm), .fu_type_o(dec_A_fu), .valid_o(dec_A_valid)
+    );
+    assign dec_A_has_imm = (dec_A_op == 4'd8); // ADDI flag
+
+    decode u_decode_B (
+        .instr_i(fetch_instr_B), .valid_i(fetch_valid_B),
+        .op_o(dec_B_op), .rs1_arch_o(dec_B_rs1), .rs2_arch_o(dec_B_rs2), .rd_arch_o(dec_B_rd),
+        .writes_rd_o(dec_B_writes), .imm_o(dec_B_imm), .fu_type_o(dec_B_fu), .valid_o(dec_B_valid)
+    );
+    assign dec_B_has_imm = (dec_B_op == 4'd8); // ADDI flag
+
+    rename_unit u_rename (
+        .clk_i(clk_i), .reset_i(reset_i),
+        .disp_A_valid_i(dec_A_valid), .disp_A_rs1_arch_i(dec_A_rs1), .disp_A_rs2_arch_i(dec_A_rs2),
+        .disp_A_rd_arch_i(dec_A_rd), .disp_A_writes_rd_i(dec_A_writes),
+        .disp_A_rs1_phys_o(rn_A_rs1_p), .disp_A_rs2_phys_o(rn_A_rs2_p),
+        .disp_A_rd_phys_o(rn_A_rd_p), .disp_A_rd_old_phys_o(rn_A_old_p),
+        
+        .disp_B_valid_i(dec_B_valid), .disp_B_rs1_arch_i(dec_B_rs1), .disp_B_rs2_arch_i(dec_B_rs2),
+        .disp_B_rd_arch_i(dec_B_rd), .disp_B_writes_rd_i(dec_B_writes),
+        .disp_B_rs1_phys_o(rn_B_rs1_p), .disp_B_rs2_phys_o(rn_B_rs2_p),
+        .disp_B_rd_phys_o(rn_B_rd_p), .disp_B_rd_old_phys_o(rn_B_old_p),
+        
+        .stall_A_o(rn_stall_A), .stall_B_o(rn_stall_B),
+        
+        .commit_valid_i(rob_commit_A_valid), 
+        .commit_old_phys_i(rob_commit_A_old) // Week 6 Serialized
+    );
+
+    dispatch u_dispatch (
+        .clk_i(clk_i), .reset_i(reset_i),
+        .decode_A_valid_i(dec_A_valid), .decode_A_op_i(dec_A_op), .decode_A_rs1_arch_i(dec_A_rs1),
+        .decode_A_rs2_arch_i(dec_A_rs2), .decode_A_rd_arch_i(dec_A_rd), .decode_A_writes_rd_i(dec_A_writes), .decode_A_fu_type_i(dec_A_fu),
+        
+        .decode_B_valid_i(dec_B_valid), .decode_B_op_i(dec_B_op), .decode_B_rs1_arch_i(dec_B_rs1),
+        .decode_B_rs2_arch_i(dec_B_rs2), .decode_B_rd_arch_i(dec_B_rd), .decode_B_writes_rd_i(dec_B_writes), .decode_B_fu_type_i(dec_B_fu),
+        
+        .rename_A_rs1_phys_i(rn_A_rs1_p), .rename_A_rs2_phys_i(rn_A_rs2_p), .rename_A_rd_phys_i(rn_A_rd_p), .rename_A_rd_old_phys_i(rn_A_old_p), .rename_stall_A_i(rn_stall_A),
+        .rename_B_rs1_phys_i(rn_B_rs1_p), .rename_B_rs2_phys_i(rn_B_rs2_p), .rename_B_rd_phys_i(rn_B_rd_p), .rename_B_rd_old_phys_i(rn_B_old_p), .rename_stall_B_i(rn_stall_B),
+        
+        .rob_tail_i(rob_tail), .rob_full_i(rob_full),
+        .rob_alloc_A_o(rob_alloc_A), .rob_A_arch_dest_o(rob_arch_A), .rob_A_phys_dest_o(rob_phys_A), .rob_A_old_phys_dest_o(rob_old_A), .rob_A_writes_rd_o(rob_writes_A),
+        .rob_alloc_B_o(rob_alloc_B), .rob_B_arch_dest_o(rob_arch_B), .rob_B_phys_dest_o(rob_phys_B), .rob_B_old_phys_dest_o(rob_old_B), .rob_B_writes_rd_o(rob_writes_B),
+        
+        .rs_disp_A_valid_o(rs_disp_A_valid), .rs_disp_A_op_o(rs_disp_A_op), .rs_disp_A_pj_o(rs_disp_A_pj), .rs_disp_A_pk_o(rs_disp_A_pk), .rs_disp_A_pd_o(rs_disp_A_pd), .rs_disp_A_rob_idx_o(rs_disp_A_rob),
+        .rs_disp_B_valid_o(rs_disp_B_valid), .rs_disp_B_op_o(rs_disp_B_op), .rs_disp_B_pj_o(rs_disp_B_pj), .rs_disp_B_pk_o(rs_disp_B_pk), .rs_disp_B_pd_o(rs_disp_B_pd), .rs_disp_B_rob_idx_o(rs_disp_B_rob),
+        
+        .fe_stall_o(disp_fe_stall)
+    );
+
+    reservation_station u_rs (
+        .clk_i(clk_i), .reset_i(reset_i),
+        .prf_ready_i(prf_ready_vec),
+        
+        .disp_A_valid_i(rs_disp_A_valid), .disp_A_op_i(rs_disp_A_op), .disp_A_pj_i(rs_disp_A_pj), .disp_A_pk_i(rs_disp_A_pk), .disp_A_pd_i(rs_disp_A_pd), .disp_A_rob_idx_i(rs_disp_A_rob),
+        .disp_A_imm_i(dec_A_imm), .disp_A_use_imm_i(dec_A_has_imm),
+        
+        .disp_B_valid_i(rs_disp_B_valid), .disp_B_op_i(rs_disp_B_op), .disp_B_pj_i(rs_disp_B_pj), .disp_B_pk_i(rs_disp_B_pk), .disp_B_pd_i(rs_disp_B_pd), .disp_B_rob_idx_i(rs_disp_B_rob),
+        .disp_B_imm_i(dec_B_imm), .disp_B_use_imm_i(dec_B_has_imm),
+        
+        .issue_0_valid_o(rs_iss0_v), .issue_0_op_o(rs_iss0_op), .issue_0_pj_o(rs_iss0_pj), .issue_0_pk_o(rs_iss0_pk), .issue_0_pd_o(rs_iss0_pd), .issue_0_rob_idx_o(rs_iss0_rob), .issue_0_imm_o(rs_iss0_imm), .issue_0_use_imm_o(rs_iss0_use_imm),
+        .issue_1_valid_o(rs_iss1_v), .issue_1_op_o(rs_iss1_op), .issue_1_pj_o(rs_iss1_pj), .issue_1_pk_o(rs_iss1_pk), .issue_1_pd_o(rs_iss1_pd), .issue_1_rob_idx_o(rs_iss1_rob), .issue_1_imm_o(rs_iss1_imm), .issue_1_use_imm_o(rs_iss1_use_imm)
+    );
+
+    alu u_alu0 (
+        .clk_i(clk_i), .reset_i(reset_i),
+        .valid_i(rs_iss0_v), .op_i(rs_iss0_op), .src1_val_i(prf_d1), .src2_val_i(prf_d2), .imm_i(rs_iss0_imm), .use_imm_i(rs_iss0_use_imm), .phys_dest_i(rs_iss0_pd), .rob_idx_i(rs_iss0_rob),
+        .result_valid_o(alu0_v), .result_o(alu0_res), .phys_dest_o(alu0_pd), .rob_idx_o(alu0_rob)
+    );
+
+    alu u_alu1 (
+        .clk_i(clk_i), .reset_i(reset_i),
+        .valid_i(rs_iss1_v), .op_i(rs_iss1_op), .src1_val_i(prf_d3), .src2_val_i(prf_d4), .imm_i(rs_iss1_imm), .use_imm_i(rs_iss1_use_imm), .phys_dest_i(rs_iss1_pd), .rob_idx_i(rs_iss1_rob),
+        .result_valid_o(alu1_v), .result_o(alu1_res), .phys_dest_o(alu1_pd), .rob_idx_o(alu1_rob)
+    );
+
+    register_file u_prf (
+        .clk_i(clk_i), .reset_i(reset_i),
+        .rd_addr_1(rs_iss0_pj), .rd_addr_2(rs_iss0_pk), .rd_addr_3(rs_iss1_pj), .rd_addr_4(rs_iss1_pk),
+        .rd_data_1(prf_d1), .rd_data_2(prf_d2), .rd_data_3(prf_d3), .rd_data_4(prf_d4),
+        
+        .wr_en_1(alu0_v), .wr_addr_1(alu0_pd), .wr_data_1(alu0_res),
+        .wr_en_2(alu1_v), .wr_addr_2(alu1_pd), .wr_data_2(alu1_res),
+        
+        .alloc_en_1(rob_alloc_A & rob_writes_A), .alloc_addr_1(rob_phys_A),
+        .alloc_en_2(rob_alloc_B & rob_writes_B), .alloc_addr_2(rob_phys_B),
+        
+        .ready_vec_o(prf_ready_vec)
+    );
+
+    rob u_rob (
+        .clk_i(clk_i), .reset_i(reset_i),
+        .alloc_A_i(rob_alloc_A), .writes_rd_A_i(rob_writes_A), .arch_dest_A_i(rob_arch_A), .phys_dest_A_i(rob_phys_A), .old_phys_dest_A_i(rob_old_A),
+        .alloc_B_i(rob_alloc_B), .writes_rd_B_i(rob_writes_B), .arch_dest_B_i(rob_arch_B), .phys_dest_B_i(rob_phys_B), .old_phys_dest_B_i(rob_old_B),
+        
+        .tail_o(rob_tail), .full_o(rob_full),
+        
+        .mark_ready_0_en_i(alu0_v), .mark_ready_0_idx_i(alu0_rob),
+        .mark_ready_1_en_i(alu1_v), .mark_ready_1_idx_i(alu1_rob),
+        
+        .commit_A_valid_o(rob_commit_A_valid), .commit_A_old_phys_o(rob_commit_A_old),
+        .commit_B_valid_o(rob_commit_B_valid), .commit_B_old_phys_o(rob_commit_B_old)
+    );
+
+endmodule
