@@ -1,0 +1,12 @@
+# Week 6 Learning Log: Milestone 3
+
+## The Final Integration
+This week tied together every single superscalar element into an active OoO pipeline! Getting the `pravah_top.v` integration correct proved how interconnected Out-of-Order mechanics are:
+* **ROB + PRF Sync:** Discovered that allocating physical registers immediately clears their ready bits in the PRF, so downstream consumer dependencies stall correctly until the writeback executes.
+* **CDB and Arbitration:** Rebuilt the writeback pathway to write PRF data simultaneously alongside setting the ROB entry to `ready=1`, which was essential to stopping deadlocks.
+
+## Wakeup/Select Extensions
+Modifying the Reservation Station taught me the mask-and-encode logic necessary for a multi-issue architecture. Using sequential priority encoders safely extracts two distinct wakeup-ready operations to send toward `ALU0` and `ALU1`. I also implemented immediate operand support to pipe directly into the RS. 
+
+## Verification & Execution Constraints
+Running the dot-product integration correctly triggered out-of-order execution! In ModelSim, the results showed sequential instruction dispatch, variable order completions into the PRF, and guaranteed program-order commits through the ROB head, completing Milestone 3 without free list corruption (which I bypassed by enforcing serial commits for Week 6).

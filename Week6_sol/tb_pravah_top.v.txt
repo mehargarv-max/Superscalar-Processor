@@ -1,0 +1,50 @@
+`timescale 1ns/1ps
+
+module tb_pravah_top;
+    reg clk = 0;
+    reg reset = 1;
+    always #5 clk = ~clk;
+
+    // Instantiate the top module
+    pravah_top dut (.clk_i(clk), .reset_i(reset));
+
+    // Load instruction memory from file
+    initial begin
+        $readmemh("../programs/dot_product.hex", dut.u_fetch.imem);
+        #20 reset = 0;
+        #2000 $finish;
+    end
+
+    // Display every commit
+    always @(posedge clk) begin
+        if (dut.u_rob.do_commit_A) begin
+            $display("Cycle %0d: COMMIT slot A: rob_idx=%0d, arch=%0d, phys=%0d, val=%0d",
+                $time/10, dut.u_rob.head, 
+                dut.u_rob.rob_arch_dest[dut.u_rob.head],
+                dut.u_rob.rob_phys_dest[dut.u_rob.head],
+                dut.u_prf.regs[dut.u_rob.rob_phys_dest[dut.u_rob.head]]);
+        end
+        // With Week 6 serialization, this will be 0, but good to have if you widen the port in Week 7.
+        if (dut.u_rob.do_commit_B) begin
+            $display("Cycle %0d: COMMIT slot B: rob_idx=%0d, arch=%0d, phys=%0d, val=%0d",
+                $time/10, dut.u_rob.head1_idx, 
+                dut.u_rob.rob_arch_dest[dut.u_rob.head1_idx],
+                dut.u_rob.rob_phys_dest[dut.u_rob.head1_idx],
+                dut.u_prf.regs[dut.u_rob.rob_phys_dest[dut.u_rob.head1_idx]]);
+        end
+    end
+
+    // Verify architectural register file at the end
+    initial begin
+        #1500;
+        $display("--- Final architectural state ---");
+        $display(" x1 = %0d (expected 2)", dut.u_prf.regs[dut.u_rename.rename_map[1]]);
+        $display(" x2 = %0d (expected 3)", dut.u_prf.regs[dut.u_rename.rename_map[2]]);
+        $display(" x3 = %0d (expected 5)", dut.u_prf.regs[dut.u_rename.rename_map[3]]);
+        $display(" x4 = %0d (expected 7)", dut.u_prf.regs[dut.u_rename.rename_map[4]]);
+        $display(" x5 = %0d (expected 34)", dut.u_prf.regs[dut.u_rename.rename_map[5]]);
+        $display(" x6 = %0d (expected 36)", dut.u_prf.regs[dut.u_rename.rename_map[6]]);
+        $display(" x7 = %0d (expected 17)", dut.u_prf.regs[dut.u_rename.rename_map[7]]);
+        $finish;
+    end
+endmodule
