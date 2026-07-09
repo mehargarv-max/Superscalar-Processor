@@ -1,0 +1,116 @@
+module dispatch #(
+    parameter ARCH_ADDR_W = 5,
+    parameter PHYS_ADDR_W = 6,
+    parameter OP_WIDTH = 4,
+    parameter ROB_ADDR_W = 3
+)(
+    input wire clk_i,
+    input wire reset_i,
+    
+    // From decode (slot A)
+    input wire decode_A_valid_i,
+    input wire [OP_WIDTH-1:0] decode_A_op_i,
+    input wire [ARCH_ADDR_W-1:0] decode_A_rs1_arch_i,
+    input wire [ARCH_ADDR_W-1:0] decode_A_rs2_arch_i,
+    input wire [ARCH_ADDR_W-1:0] decode_A_rd_arch_i,
+    input wire decode_A_writes_rd_i,
+    input wire [1:0] decode_A_fu_type_i,
+    
+    // From decode (slot B)
+    input wire decode_B_valid_i,
+    input wire [OP_WIDTH-1:0] decode_B_op_i,
+    input wire [ARCH_ADDR_W-1:0] decode_B_rs1_arch_i,
+    input wire [ARCH_ADDR_W-1:0] decode_B_rs2_arch_i,
+    input wire [ARCH_ADDR_W-1:0] decode_B_rd_arch_i,
+    input wire decode_B_writes_rd_i,
+    input wire [1:0] decode_B_fu_type_i,
+    
+    // From rename (slot A's physical regs)
+    input wire [PHYS_ADDR_W-1:0] rename_A_rs1_phys_i,
+    input wire [PHYS_ADDR_W-1:0] rename_A_rs2_phys_i,
+    input wire [PHYS_ADDR_W-1:0] rename_A_rd_phys_i,
+    input wire [PHYS_ADDR_W-1:0] rename_A_rd_old_phys_i,
+    input wire rename_stall_A_i,
+    
+    // From rename (slot B)
+    input wire [PHYS_ADDR_W-1:0] rename_B_rs1_phys_i,
+    input wire [PHYS_ADDR_W-1:0] rename_B_rs2_phys_i,
+    input wire [PHYS_ADDR_W-1:0] rename_B_rd_phys_i,
+    input wire [PHYS_ADDR_W-1:0] rename_B_rd_old_phys_i,
+    input wire rename_stall_B_i,
+    
+    // ROB interface
+    input wire [ROB_ADDR_W-1:0] rob_tail_i,
+    input wire rob_full_i,
+    output wire rob_alloc_A_o,
+    output wire [ARCH_ADDR_W-1:0] rob_A_arch_dest_o,
+    output wire [PHYS_ADDR_W-1:0] rob_A_phys_dest_o,
+    output wire [PHYS_ADDR_W-1:0] rob_A_old_phys_dest_o,
+    output wire rob_A_writes_rd_o,
+    output wire rob_alloc_B_o,
+    output wire [ARCH_ADDR_W-1:0] rob_B_arch_dest_o,
+    output wire [PHYS_ADDR_W-1:0] rob_B_phys_dest_o,
+    output wire [PHYS_ADDR_W-1:0] rob_B_old_phys_dest_o,
+    output wire rob_B_writes_rd_o,
+    
+    // To RS (slot A)
+    output wire rs_disp_A_valid_o,
+    output wire [OP_WIDTH-1:0] rs_disp_A_op_o,
+    output wire [PHYS_ADDR_W-1:0] rs_disp_A_pj_o,
+    output wire [PHYS_ADDR_W-1:0] rs_disp_A_pk_o,
+    output wire [PHYS_ADDR_W-1:0] rs_disp_A_pd_o,
+    output wire [ROB_ADDR_W-1:0] rs_disp_A_rob_idx_o,
+    
+    // To RS (slot B)
+    output wire rs_disp_B_valid_o,
+    output wire [OP_WIDTH-1:0] rs_disp_B_op_o,
+    output wire [PHYS_ADDR_W-1:0] rs_disp_B_pj_o,
+    output wire [PHYS_ADDR_W-1:0] rs_disp_B_pk_o,
+    output wire [PHYS_ADDR_W-1:0] rs_disp_B_pd_o,
+    output wire [ROB_ADDR_W-1:0] rs_disp_B_rob_idx_o,
+    
+    // Back-pressure to fetch
+    output wire fe_stall_o
+);
+
+    // Combine all stall sources
+    wire any_stall = rename_stall_A_i | rename_stall_B_i | rob_full_i;
+    
+    // Slot A dispatches if valid, not stalled
+    wire A_dispatches = decode_A_valid_i & !rename_stall_A_i & !rob_full_i;
+    
+    // Slot B dispatches if valid, not stalled, and A is dispatching (else B holds)
+    wire B_dispatches = decode_B_valid_i & !rename_stall_B_i & !rob_full_i & A_dispatches;
+    
+    // Back-pressure: if A can't dispatch, hold fetch
+    assign fe_stall_o = (decode_A_valid_i & !A_dispatches) | (decode_B_valid_i & !B_dispatches);
+    
+    // ROB outputs
+    assign rob_alloc_A_o = A_dispatches;
+    assign rob_A_arch_dest_o = decode_A_rd_arch_i;
+    assign rob_A_phys_dest_o = rename_A_rd_phys_i;
+    assign rob_A_old_phys_dest_o = rename_A_rd_old_phys_i;
+    assign rob_A_writes_rd_o = decode_A_writes_rd_i;
+    
+    assign rob_alloc_B_o = B_dispatches;
+    assign rob_B_arch_dest_o = decode_B_rd_arch_i;
+    assign rob_B_phys_dest_o = rename_B_rd_phys_i;
+    assign rob_B_old_phys_dest_o = rename_B_rd_old_phys_i;
+    assign rob_B_writes_rd_o = decode_B_writes_rd_i;
+    
+    // RS dispatch outputs
+    assign rs_disp_A_valid_o = A_dispatches & (decode_A_fu_type_i == 2'd0); // ALU only this week
+    assign rs_disp_A_op_o = decode_A_op_i;
+    assign rs_disp_A_pj_o = rename_A_rs1_phys_i;
+    assign rs_disp_A_pk_o = rename_A_rs2_phys_i;
+    assign rs_disp_A_pd_o = rename_A_rd_phys_i;
+    assign rs_disp_A_rob_idx_o = rob_tail_i;
+    
+    assign rs_disp_B_valid_o = B_dispatches & (decode_B_fu_type_i == 2'd0);
+    assign rs_disp_B_op_o = decode_B_op_i;
+    assign rs_disp_B_pj_o = rename_B_rs1_phys_i;
+    assign rs_disp_B_pk_o = rename_B_rs2_phys_i;
+    assign rs_disp_B_pd_o = rename_B_rd_phys_i;
+    assign rs_disp_B_rob_idx_o = rob_tail_i + (A_dispatches ? 1 : 0);
+
+endmodule

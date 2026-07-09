@@ -1,0 +1,104 @@
+module reservation_station #(
+    parameter NUM_RS = 8,
+    parameter OP_WIDTH = 4,
+    parameter PHYS_ADDR_W = 6,
+    parameter ROB_ADDR_W = 3
+)(
+    input wire clk_i,
+    input wire reset_i,
+    
+    // Dispatch Port A
+    input wire disp_A_valid_i,
+    input wire [OP_WIDTH-1:0] disp_A_op_i,
+    input wire [PHYS_ADDR_W-1:0] disp_A_pj_i,
+    input wire [PHYS_ADDR_W-1:0] disp_A_pk_i,
+    input wire [PHYS_ADDR_W-1:0] disp_A_pd_i,
+    input wire [ROB_ADDR_W-1:0] disp_A_rob_idx_i,
+    
+    // Dispatch Port B
+    input wire disp_B_valid_i,
+    input wire [OP_WIDTH-1:0] disp_B_op_i,
+    input wire [PHYS_ADDR_W-1:0] disp_B_pj_i,
+    input wire [PHYS_ADDR_W-1:0] disp_B_pk_i,
+    input wire [PHYS_ADDR_W-1:0] disp_B_pd_i,
+    input wire [ROB_ADDR_W-1:0] disp_B_rob_idx_i,
+    
+    // To Dispatch: RS Full status
+    output wire rs_full_o,
+    
+    // Debug/Testbench outputs (Simplified for Week 5)
+    output wire [NUM_RS-1:0] rs_busy_o
+);
+
+    reg busy [0:NUM_RS-1];
+    reg [OP_WIDTH-1:0] op [0:NUM_RS-1];
+    reg [PHYS_ADDR_W-1:0] pj [0:NUM_RS-1];
+    reg [PHYS_ADDR_W-1:0] pk [0:NUM_RS-1];
+    reg [PHYS_ADDR_W-1:0] pd [0:NUM_RS-1];
+    reg [ROB_ADDR_W-1:0] rob_idx [0:NUM_RS-1];
+
+    // Expose busy vector
+    genvar i;
+    generate
+        for (i = 0; i < NUM_RS; i = i + 1) begin : assign_busy
+            assign rs_busy_o[i] = busy[i];
+        end
+    endgenerate
+
+    // Priority encoders to find first and second free slots
+    reg [$clog2(NUM_RS)-1:0] free_idx_1;
+    reg [$clog2(NUM_RS)-1:0] free_idx_2;
+    reg has_free_1, has_free_2;
+    integer j, k;
+
+    always @(*) begin
+        has_free_1 = 0;
+        free_idx_1 = 0;
+        for (j = 0; j < NUM_RS; j = j + 1) begin
+            if (!busy[j] && !has_free_1) begin
+                has_free_1 = 1;
+                free_idx_1 = j;
+            end
+        end
+
+        has_free_2 = 0;
+        free_idx_2 = 0;
+        for (k = 0; k < NUM_RS; k = k + 1) begin
+            if (!busy[k] && k != free_idx_1 && !has_free_2) begin
+                has_free_2 = 1;
+                free_idx_2 = k;
+            end
+        end
+    end
+
+    // Full logic: True if we have less than 2 free slots
+    assign rs_full_o = ~(has_free_1 & has_free_2);
+
+    integer idx;
+    always @(posedge clk_i) begin
+        if (reset_i) begin
+            for (idx = 0; idx < NUM_RS; idx = idx + 1) begin
+                busy[idx] <= 0;
+            end
+        end else begin
+            // Allocate A
+            if (disp_A_valid_i && has_free_1) begin
+                busy[free_idx_1] <= 1;
+                op[free_idx_1] <= disp_A_op_i;
+                pj[free_idx_1] <= disp_A_pj_i;
+                pk[free_idx_1] <= disp_A_pk_i;
+                pd[free_idx_1] <= disp_A_pd_i;
+                rob_idx[free_idx_1] <= disp_A_rob_idx_i;
+            end
+            // Allocate B
+            if (disp_B_valid_i && has_free_2) begin
+                busy[free_idx_2] <= 1;
+                op[free_idx_2] <= disp_B_op_i;
+                pj[free_idx_2] <= disp_B_pj_i;
+                pk[free_idx_2] <= disp_B_pk_i;
+                pd[free_idx_2] <= disp_B_pd_i;
+                rob_idx[free_idx_2] <= disp_B_rob_idx_i;
+            end
+        end
+    end
+endmodule
